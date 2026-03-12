@@ -31,13 +31,14 @@ var SupportedLeagues = data.AllLeagueIDs()
 
 // Client implements the api.Client interface for FotMob API
 type Client struct {
-	httpClient  *http.Client
-	baseURL     string
-	rateLimiter *ratelimit.Limiter
-	cache       *ResponseCache
-	emptyCache  *EmptyResultsCache // Persistent cache for empty league+date combinations
-	pageURLs    map[int]string     // Match ID -> page slug mapping for page-based fetching
-	pageURLsMu  sync.RWMutex
+	httpClient    *http.Client
+	baseURL       string
+	rateLimiter   *ratelimit.Limiter
+	cache         *ResponseCache
+	emptyCache    *EmptyResultsCache // Persistent cache for empty league+date combinations
+	pageURLs      map[int]string     // Match ID -> page slug mapping for page-based fetching
+	pageURLsMu    sync.RWMutex
+	maxConcurrent chan struct{} // Semaphore to limit concurrent API requests
 }
 
 // NewClient creates a new FotMob API client with default configuration.
@@ -61,11 +62,12 @@ func NewClient() *Client {
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
-		baseURL:     baseURL,
-		rateLimiter: ratelimit.New(200 * time.Millisecond), // Minimal delay for concurrent requests
-		cache:       NewResponseCache(DefaultCacheConfig()),
-		emptyCache:  emptyCache,
-		pageURLs:    make(map[int]string),
+		baseURL:       baseURL,
+		rateLimiter:   ratelimit.New(200 * time.Millisecond), // Minimal delay for concurrent requests
+		cache:         NewResponseCache(DefaultCacheConfig()),
+		emptyCache:    emptyCache,
+		pageURLs:      make(map[int]string),
+		maxConcurrent: make(chan struct{}, 10),
 	}
 }
 
@@ -161,6 +163,8 @@ func (c *Client) MatchesByDateWithTabs(ctx context.Context, date time.Time, tabs
 			wg.Add(1)
 			go func(id int, tabName string) {
 				defer wg.Done()
+				c.maxConcurrent <- struct{}{}        // acquire semaphore
+				defer func() { <-c.maxConcurrent }() // release semaphore
 
 				// Apply rate limiting (minimal delay for concurrent requests)
 				c.rateLimiter.Wait()
@@ -418,6 +422,8 @@ func (c *Client) BatchMatchDetails(ctx context.Context, matchIDs []int) map[int]
 		wg.Add(1)
 		go func(matchID int) {
 			defer wg.Done()
+			c.maxConcurrent <- struct{}{}        // acquire semaphore
+			defer func() { <-c.maxConcurrent }() // release semaphore
 
 			details, err := c.MatchDetails(ctx, matchID)
 			if err != nil {
