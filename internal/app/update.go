@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/0xjuanma/golazo/internal/api"
+	"github.com/0xjuanma/golazo/internal/constants"
 	"github.com/0xjuanma/golazo/internal/data"
 	"github.com/0xjuanma/golazo/internal/fotmob"
 	"github.com/0xjuanma/golazo/internal/reddit"
@@ -165,10 +166,15 @@ func (m model) handleMatchDetails(msg matchDetailsMsg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.liveViewLoading = false
 		m.statsViewLoading = false
+		if msg.err != nil {
+			m.lastError = constants.ErrorMatchDetails
+		}
 		m.debugLog("handleMatchDetails: match details is nil")
 		return m, nil
 	}
 
+	// Clear error on success
+	m.lastError = ""
 	m.matchDetails = msg.details
 	m.debugLog(fmt.Sprintf("handleMatchDetails: loaded match %d (%s vs %s) with %d events, status=%v",
 		msg.details.ID, msg.details.HomeTeam.Name, msg.details.AwayTeam.Name, len(msg.details.Events), msg.details.Status))
@@ -658,6 +664,7 @@ func (m model) handleLiveBatchData(msg liveBatchDataMsg) (tea.Model, tea.Cmd) {
 	// Accumulate live matches from this batch
 	if len(msg.matches) > 0 {
 		m.liveMatchesBuffer = append(m.liveMatchesBuffer, msg.matches...)
+		m.lastError = ""
 	}
 
 	// Track progress
@@ -690,6 +697,10 @@ func (m model) handleLiveBatchData(msg liveBatchDataMsg) (tea.Model, tea.Cmd) {
 	if msg.isLast {
 		m.liveViewLoading = false
 		m.loading = false
+
+		if len(m.liveMatchesBuffer) == 0 {
+			m.lastError = constants.ErrorLoadFailed
+		}
 
 		// Cache the final result
 		if m.fotmobClient != nil && len(m.liveMatchesBuffer) > 0 {
@@ -785,6 +796,11 @@ func (m model) handleStatsDayData(msg statsDayDataMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Clear error when data arrives successfully
+	if len(msg.finished) > 0 || len(msg.upcoming) > 0 {
+		m.lastError = ""
+	}
+
 	// Accumulate finished matches (deduplicate by match ID)
 	if len(msg.finished) > 0 {
 		// Build a set of existing IDs to avoid duplicates
@@ -865,6 +881,11 @@ func (m model) handleStatsDayData(msg statsDayDataMsg) (tea.Model, tea.Cmd) {
 	if msg.isLast {
 		m.statsViewLoading = false
 		m.loading = false
+
+		if len(m.statsData.AllFinished) == 0 && len(m.statsData.TodayUpcoming) == 0 {
+			m.lastError = constants.ErrorLoadFailed
+		}
+
 		return m, tea.Batch(cmds...)
 	}
 

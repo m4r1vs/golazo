@@ -86,7 +86,8 @@ type model struct {
 	liveViewLoading  bool
 	statsViewLoading bool
 	polling          bool
-	pendingSelection int // Tracks which view is being preloaded (-1 = none, 0 = stats, 1 = live)
+	pendingSelection int    // Tracks which view is being preloaded (-1 = none, 0 = stats, 1 = live)
+	lastError        string // Last error message to display in UI (cleared on successful load)
 
 	// Configuration
 	useMockData         bool

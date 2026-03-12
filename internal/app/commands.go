@@ -127,7 +127,7 @@ func fetchMatchDetails(client *fotmob.Client, matchID int, useMockData bool) tea
 
 		details, err := client.MatchDetails(ctx, matchID)
 		if err != nil {
-			return matchDetailsMsg{details: nil}
+			return matchDetailsMsg{details: nil, err: err}
 		}
 
 		return matchDetailsMsg{details: details}
@@ -148,7 +148,7 @@ func fetchMatchDetailsForceRefresh(client *fotmob.Client, matchID int, useMockDa
 
 		details, err := client.MatchDetailsForceRefresh(ctx, matchID)
 		if err != nil {
-			return matchDetailsMsg{details: nil}
+			return matchDetailsMsg{details: nil, err: err}
 		}
 
 		return matchDetailsMsg{details: details}
@@ -189,7 +189,7 @@ func fetchPollMatchDetails(client *fotmob.Client, matchID int, useMockData bool)
 		// Force refresh to bypass cache - live matches need fresh data
 		details, err := client.MatchDetailsForceRefresh(ctx, matchID)
 		if err != nil {
-			return matchDetailsMsg{details: nil}
+			return matchDetailsMsg{details: nil, err: err}
 		}
 
 		return matchDetailsMsg{details: details}
@@ -259,6 +259,7 @@ func fetchStatsDayData(client *fotmob.Client, useMockData bool, dayIndex int, to
 				isLast:   isLast,
 				finished: nil,
 				upcoming: nil,
+				err:      err,
 			}
 		}
 
@@ -300,7 +301,7 @@ func fetchStatsMatchDetailsFotmob(client *fotmob.Client, matchID int, useMockDat
 
 		details, err := client.MatchDetails(ctx, matchID)
 		if err != nil {
-			return matchDetailsMsg{details: nil}
+			return matchDetailsMsg{details: nil, err: err}
 		}
 
 		return matchDetailsMsg{details: details}
