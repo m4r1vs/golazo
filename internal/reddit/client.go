@@ -34,6 +34,11 @@ func NewPublicJSONFetcher() *PublicJSONFetcher {
 	return &PublicJSONFetcher{
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
 		// Reddit requires a descriptive User-Agent
 		userAgent:   "golazo:v1.0.0 (by /u/golazo_app)",

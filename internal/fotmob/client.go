@@ -55,6 +55,11 @@ func NewClient() *Client {
 	return &Client{
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        30,
+				MaxIdleConnsPerHost: 30,
+				IdleConnTimeout:     90 * time.Second,
+			},
 		},
 		baseURL:     baseURL,
 		rateLimiter: ratelimit.New(200 * time.Millisecond), // Minimal delay for concurrent requests
