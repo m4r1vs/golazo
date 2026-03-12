@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/0xjuanma/golazo/internal/api"
@@ -10,8 +9,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
-const statisticsDialogID = "statistics"
 
 // StatisticsDialog displays all match statistics in a comparison view.
 type StatisticsDialog struct {
@@ -39,7 +36,7 @@ func NewStatisticsDialog(homeTeam, awayTeam string, homeScore, awayScore int, st
 
 // ID returns the dialog identifier.
 func (d *StatisticsDialog) ID() string {
-	return statisticsDialogID
+	return StatisticsDialogID
 }
 
 // Update handles input for the statistics dialog.
@@ -129,8 +126,8 @@ func (d *StatisticsDialog) renderTeamHeader(width int) string {
 // renderStatRow renders a single statistic row with comparison bar.
 func (d *StatisticsDialog) renderStatRow(stat api.MatchStatistic, width int) string {
 	// Parse values for comparison
-	homeVal := parseStatNumber(stat.HomeValue)
-	awayVal := parseStatNumber(stat.AwayValue)
+	homeVal := parseStatValue(stat.HomeValue)
+	awayVal := parseStatValue(stat.AwayValue)
 
 	// Format label
 	label := stat.Label
@@ -229,23 +226,3 @@ func calculateBarWidths(home, away float64, maxWidth int) (int, int) {
 	return homeWidth, awayWidth
 }
 
-// parseStatNumber extracts a numeric value from a stat string.
-func parseStatNumber(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.TrimSuffix(s, "%")
-
-	// Handle formats like "23 (45%)" - take first number
-	if idx := strings.Index(s, " "); idx > 0 {
-		s = s[:idx]
-	}
-	if idx := strings.Index(s, "("); idx > 0 {
-		s = s[:idx]
-	}
-	s = strings.TrimSpace(s)
-
-	val, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0
-	}
-	return val
-}

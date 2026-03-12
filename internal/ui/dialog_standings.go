@@ -10,8 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const standingsDialogID = "standings"
-
 // StandingsDialog displays the league standings table for a match.
 type StandingsDialog struct {
 	leagueName  string
@@ -34,7 +32,7 @@ func NewStandingsDialog(leagueName string, standings []api.LeagueTableEntry, hom
 
 // ID returns the dialog identifier.
 func (d *StandingsDialog) ID() string {
-	return standingsDialogID
+	return StandingsDialogID
 }
 
 // Update handles input for the standings dialog.

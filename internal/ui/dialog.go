@@ -12,6 +12,13 @@ const (
 	DefaultDialogMaxHeight = 39
 )
 
+// Dialog IDs
+const (
+	StandingsDialogID  = "standings"
+	FormationsDialogID = "formations"
+	StatisticsDialogID = "statistics"
+)
+
 // DialogAction represents an action returned by a dialog after handling a message.
 type DialogAction any
 

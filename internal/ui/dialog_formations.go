@@ -10,8 +10,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const formationsDialogID = "formations"
-
 // FormationsDialog displays the match formations for both teams.
 type FormationsDialog struct {
 	homeTeam      string
@@ -42,7 +40,7 @@ func NewFormationsDialog(
 
 // ID returns the dialog identifier.
 func (d *FormationsDialog) ID() string {
-	return formationsDialogID
+	return FormationsDialogID
 }
 
 // Update handles input for the formations dialog.
