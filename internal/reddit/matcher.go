@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+var (
+	reNonAlphanumSpace = regexp.MustCompile(`[^a-z0-9\s]`)
+	reNonAlphaSpace    = regexp.MustCompile(`[^a-z\s]`)
+)
+
 // Matcher provides loose matching for Reddit goal post titles.
 // Example titles:
 //   - "Wolves [3] - 0 West Ham - Mateus Mane 41'"
@@ -129,7 +134,7 @@ func normalizeTeamName(name string) string {
 	}
 
 	// Remove special characters
-	norm = regexp.MustCompile(`[^a-z0-9\s]`).ReplaceAllString(norm, "")
+	norm = reNonAlphanumSpace.ReplaceAllString(norm, "")
 
 	return strings.TrimSpace(norm)
 }
@@ -138,7 +143,7 @@ func normalizeTeamName(name string) string {
 func normalizeName(name string) string {
 	norm := strings.ToLower(name)
 	// Remove special characters but keep spaces
-	norm = regexp.MustCompile(`[^a-z\s]`).ReplaceAllString(norm, "")
+	norm = reNonAlphaSpace.ReplaceAllString(norm, "")
 	return strings.TrimSpace(norm)
 }
 
