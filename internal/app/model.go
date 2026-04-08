@@ -63,9 +63,10 @@ type model struct {
 	statsTotalDays  int // Total days to load (5)
 
 	// Progressive loading state (live view) - batch-based for parallel fetching
-	liveBatchesLoaded int         // Number of batches loaded so far
-	liveTotalBatches  int         // Total batches to load
-	liveMatchesBuffer []api.Match // Buffer to accumulate live matches during progressive load
+	liveBatchesLoaded   int         // Number of batches loaded so far
+	liveTotalBatches    int         // Total batches to load
+	liveMatchesBuffer   []api.Match // Buffer to accumulate live matches during progressive load
+	liveUpcomingBuffer  []api.Match // Buffer to accumulate upcoming matches during progressive load
 
 	// UI components
 	spinner          spinner.Model
@@ -221,7 +222,7 @@ func New(useMockData bool, debugMode bool, isDevBuild bool, newVersionAvailable 
 		isDevBuild:             isDevBuild,
 		newVersionAvailable:    newVersionAvailable,
 		appVersion:             appVersion,
-		fotmobClient:           fotmob.NewClient(),
+		fotmobClient:           newFotmobClient(logger),
 		parser:                 fotmob.NewLiveUpdateParser(),
 		redditClient:           redditClient,
 		goalLinks:              make(map[reddit.GoalLinkKey]*reddit.GoalLink),
@@ -243,6 +244,13 @@ func New(useMockData bool, debugMode bool, isDevBuild bool, newVersionAvailable 
 		dialogOverlay:          ui.NewDialogOverlay(), // Initialize dialog overlay
 		animatedLogo:           animatedLogo,          // Initialize animated logo
 	}
+}
+
+// newFotmobClient creates a FotMob client and wires the debug logger.
+func newFotmobClient(logger *slog.Logger) *fotmob.Client {
+	c := fotmob.NewClient()
+	c.SetLogger(logger)
+	return c
 }
 
 // initLogger creates a structured logger. When debugMode is true, logs to ~/.golazo/golazo_debug.log.
