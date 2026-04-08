@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ type Client struct {
 	pageURLs      map[int]string     // Match ID -> page slug mapping for page-based fetching
 	pageURLsMu    sync.RWMutex
 	maxConcurrent chan struct{} // Semaphore to limit concurrent API requests
+	logger        *slog.Logger // Optional debug logger (no-op if nil)
 }
 
 // NewClient creates a new FotMob API client with default configuration.
@@ -68,6 +70,18 @@ func NewClient() *Client {
 		emptyCache:    emptyCache,
 		pageURLs:      make(map[int]string, 50),
 		maxConcurrent: make(chan struct{}, 10),
+	}
+}
+
+// SetLogger sets the debug logger for the client.
+// When set, the client logs diagnostic info about fetch paths and errors.
+func (c *Client) SetLogger(logger *slog.Logger) {
+	c.logger = logger
+}
+
+func (c *Client) debugLog(msg string, args ...any) {
+	if c.logger != nil {
+		c.logger.Debug(msg, args...)
 	}
 }
 
@@ -395,6 +409,7 @@ func (c *Client) MatchesForLeagueAndDate(ctx context.Context, leagueID int, date
 func (c *Client) MatchDetails(ctx context.Context, matchID int) (*api.MatchDetails, error) {
 	// Check cache first
 	if cached := c.cache.Details(matchID); cached != nil {
+		c.debugLog("MatchDetails: cache hit", "matchID", matchID)
 		return cached, nil
 	}
 
@@ -402,16 +417,21 @@ func (c *Client) MatchDetails(ctx context.Context, matchID int) (*api.MatchDetai
 	c.rateLimiter.Wait()
 
 	// Try page-based fetching first (primary method)
-	if pageSlug := c.getPageURL(matchID); pageSlug != "" {
+	pageSlug := c.getPageURL(matchID)
+	if pageSlug != "" {
+		c.debugLog("MatchDetails: fetching from page", "matchID", matchID, "pageSlug", pageSlug)
 		details, err := fetchMatchDetailsFromPage(ctx, c.httpClient, pageSlug)
 		if err == nil && details != nil {
 			c.cache.SetDetails(matchID, details)
+			c.debugLog("MatchDetails: page fetch success", "matchID", matchID, "events", len(details.Events))
 			return details, nil
 		}
-		// Page fetch failed, fall through to direct API
+		c.debugLog("MatchDetails: page fetch failed, falling back to API", "matchID", matchID, "error", err)
+	} else {
+		c.debugLog("MatchDetails: no pageURL stored, falling back to API", "matchID", matchID)
 	}
 
-	// Fallback: direct API endpoint (may return 403 if Turnstile is required)
+	// Fallback: direct API endpoint (likely returns 404 since FotMob removed it)
 	return c.matchDetailsFromAPI(ctx, matchID)
 }
 
