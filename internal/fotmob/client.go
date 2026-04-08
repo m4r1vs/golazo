@@ -404,8 +404,8 @@ func (c *Client) MatchesForLeagueAndDate(ctx context.Context, leagueID int, date
 // Results are cached to avoid redundant API calls.
 //
 // Uses page-based fetching (match page HTML with __NEXT_DATA__) as the primary
-// method, since the /api/matchDetails endpoint now requires Cloudflare Turnstile
-// verification. Falls back to the direct API endpoint if page fetching fails.
+// method. FotMob removed their /api/matchDetails JSON endpoint (returns 404).
+// Falls back to the direct API endpoint if page fetching fails (unlikely to work).
 func (c *Client) MatchDetails(ctx context.Context, matchID int) (*api.MatchDetails, error) {
 	// Check cache first
 	if cached := c.cache.Details(matchID); cached != nil {
@@ -436,8 +436,8 @@ func (c *Client) MatchDetails(ctx context.Context, matchID int) (*api.MatchDetai
 }
 
 // matchDetailsFromAPI fetches match details from the /api/matchDetails endpoint.
-// This is the original fetching method, kept as a fallback in case the endpoint
-// becomes accessible again or for specific match IDs without a page URL.
+// This endpoint currently returns 404 (FotMob removed it). Kept as a last-resort
+// fallback in case the endpoint is restored or for match IDs without a page URL.
 func (c *Client) matchDetailsFromAPI(ctx context.Context, matchID int) (*api.MatchDetails, error) {
 	url := fmt.Sprintf("%s/matchDetails?matchId=%d", c.baseURL, matchID)
 
