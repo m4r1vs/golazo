@@ -9,7 +9,7 @@ import (
 )
 
 // StatsData holds all matches data for the stats view.
-// This is returned by StatsData and contains both finished and upcoming matches.
+// This is returned by StatsData and contains finished, upcoming, and live matches.
 type StatsData struct {
 	// AllFinished contains finished matches for all fetched days (5 days by default)
 	AllFinished []api.Match
@@ -17,16 +17,18 @@ type StatsData struct {
 	TodayFinished []api.Match
 	// TodayUpcoming contains today's upcoming matches
 	TodayUpcoming []api.Match
+	// TodayLive contains today's live matches
+	TodayLive []api.Match
 }
 
 // StatsDataDays is the number of days to fetch for stats view.
 // 5 days ensures we have data even during mid-week breaks.
 const StatsDataDays = 5
 
-// StatsData fetches all stats data in one call: 5 days of finished matches + today's upcoming.
+// StatsData fetches all stats data in one call: 5 days of finished matches + today's upcoming and live.
 // This is the primary API for the stats view - always fetches 5 days, then filters client-side.
 //
-// OPTIMIZATION: Only queries "fixtures" tab for today (upcoming matches).
+// OPTIMIZATION: Only queries "fixtures" tab for today (upcoming/live matches).
 // Past days only need "results" tab (finished matches).
 //
 // API calls breakdown:
@@ -46,6 +48,7 @@ func (c *Client) StatsData(ctx context.Context) (*StatsData, error) {
 	allFinishedMap := make(map[int]api.Match, 50)
 	todayFinishedMap := make(map[int]api.Match, 20)
 	todayUpcomingMap := make(map[int]api.Match, 10)
+	todayLiveMap := make(map[int]api.Match, 5)
 	var lastErr error
 	successCount := 0
 
@@ -83,6 +86,9 @@ func (c *Client) StatsData(ctx context.Context) (*StatsData, error) {
 			} else if match.Status == api.MatchStatusNotStarted && isToday {
 				// Only today has upcoming matches
 				todayUpcomingMap[match.ID] = match
+			} else if match.Status == api.MatchStatusLive && isToday {
+				// Only today has live matches in this context
+				todayLiveMap[match.ID] = match
 			}
 		}
 	}
@@ -108,9 +114,15 @@ func (c *Client) StatsData(ctx context.Context) (*StatsData, error) {
 		todayUpcoming = append(todayUpcoming, match)
 	}
 
+	todayLive := make([]api.Match, 0, len(todayLiveMap))
+	for _, match := range todayLiveMap {
+		todayLive = append(todayLive, match)
+	}
+
 	return &StatsData{
 		AllFinished:   allFinished,
 		TodayFinished: todayFinished,
 		TodayUpcoming: todayUpcoming,
+		TodayLive:     todayLive,
 	}, nil
 }

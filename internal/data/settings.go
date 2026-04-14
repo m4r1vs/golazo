@@ -157,6 +157,16 @@ type Settings struct {
 	// SelectedLeagues contains the IDs of leagues the user wants to follow.
 	// If empty, all supported leagues are used.
 	SelectedLeagues []int `yaml:"selected_leagues"`
+
+	// BookmarkedClubs contains clubs the user has bookmarked.
+	BookmarkedClubs []ClubInfo `yaml:"bookmarked_clubs"`
+}
+
+// ClubInfo contains club metadata for bookmarks.
+type ClubInfo struct {
+	ID       int    `yaml:"id"`
+	Name     string `yaml:"name"`
+	LeagueID int    `yaml:"league_id"`
 }
 
 // SettingsPath returns the path to the settings file.
@@ -218,15 +228,30 @@ var DefaultLeagueIDs = []int{
 }
 
 // ActiveLeagueIDs returns the league IDs that should be used for API calls.
-// If no leagues are selected in settings, returns the default leagues (not all).
+// If no leagues are selected in settings, returns the default leagues (not all),
+// plus any leagues associated with bookmarked clubs.
 func ActiveLeagueIDs() []int {
 	settings, err := LoadSettings()
-	if err != nil || len(settings.SelectedLeagues) == 0 {
-		// Return default leagues for efficient API usage
+	if err != nil {
 		return DefaultLeagueIDs
 	}
 
-	return settings.SelectedLeagues
+	leagueIDs := settings.SelectedLeagues
+	if len(leagueIDs) == 0 {
+		// Start with default leagues if no manual selection
+		leagueIDs = make([]int, len(DefaultLeagueIDs))
+		copy(leagueIDs, DefaultLeagueIDs)
+	}
+
+	// Add leagues from bookmarked clubs
+	bookmarkedIDs := settings.BookmarkedLeagueIDs()
+	for _, id := range bookmarkedIDs {
+		if !slices.Contains(leagueIDs, id) {
+			leagueIDs = append(leagueIDs, id)
+		}
+	}
+
+	return leagueIDs
 }
 
 // AllLeagueIDs returns all supported league IDs (used as fallback).
@@ -248,6 +273,47 @@ func AllLeagueIDs() []int {
 // IsLeagueSelected checks if a league ID is in the selected list.
 func (s *Settings) IsLeagueSelected(leagueID int) bool {
 	return slices.Contains(s.SelectedLeagues, leagueID)
+}
+
+// IsClubBookmarked checks if a club ID is bookmarked.
+func (s *Settings) IsClubBookmarked(clubID int) bool {
+	for _, club := range s.BookmarkedClubs {
+		if club.ID == clubID {
+			return true
+		}
+	}
+	return false
+}
+
+// AddBookmarkedClub adds a club to the bookmarks list.
+func (s *Settings) AddBookmarkedClub(club ClubInfo) {
+	if !s.IsClubBookmarked(club.ID) {
+		s.BookmarkedClubs = append(s.BookmarkedClubs, club)
+	}
+}
+
+// RemoveBookmarkedClub removes a club from the bookmarks list.
+func (s *Settings) RemoveBookmarkedClub(clubID int) {
+	newClubs := make([]ClubInfo, 0, len(s.BookmarkedClubs))
+	for _, club := range s.BookmarkedClubs {
+		if club.ID != clubID {
+			newClubs = append(newClubs, club)
+		}
+	}
+	s.BookmarkedClubs = newClubs
+}
+
+// BookmarkedLeagueIDs returns all league IDs associated with bookmarked clubs.
+func (s *Settings) BookmarkedLeagueIDs() []int {
+	ids := make([]int, 0, len(s.BookmarkedClubs))
+	seen := make(map[int]bool)
+	for _, club := range s.BookmarkedClubs {
+		if !seen[club.LeagueID] {
+			ids = append(ids, club.LeagueID)
+			seen[club.LeagueID] = true
+		}
+	}
+	return ids
 }
 
 // GetAllRegions returns a list of all available regions in order.

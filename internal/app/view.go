@@ -65,6 +65,26 @@ func (m model) View() string {
 			m.lastError,
 		)
 
+	case viewBookmarks:
+		m.ensureBookmarksListSize()
+		spinner := m.ensureStatsSpinner()
+		return ui.RenderBookmarksViewWithList(
+			m.width, m.height,
+			m.bookmarksMatchesList,
+			m.matchDetails,
+			spinner,
+			m.bookmarksViewLoading,
+			m.statsDateRange,
+			m.statsDaysLoaded,
+			m.statsTotalDays,
+			m.buildGoalLinksMap(),
+			m.getStatusBannerType(),
+			&m.statsDetailsViewport,
+			m.statsRightPanelFocused,
+			m.statsScrollOffset,
+			m.lastError,
+		)
+
 	case viewSettings:
 		return ui.RenderSettingsView(m.width, m.height, m.settingsState, m.getStatusBannerType())
 
@@ -116,6 +136,30 @@ func (m *model) ensureStatsListSize() {
 
 	if availableWidth > 0 && availableHeight > 0 {
 		m.statsMatchesList.SetSize(availableWidth, availableHeight)
+	}
+}
+
+// ensureBookmarksListSize ensures bookmarks list dimensions are set before rendering.
+func (m *model) ensureBookmarksListSize() {
+	if m.width <= 0 || m.height <= 0 {
+		return
+	}
+
+	const (
+		frameH         = 2
+		frameV         = 2
+		titleHeight    = 3
+		spinnerHeight  = 3
+		headerHeight   = 2 // "Match List" header + spacing
+		selectorHeight = 2 // Date selector + spacing
+	)
+
+	leftWidth := max(m.width*40/100, 30)
+	availableWidth := leftWidth - frameH*2
+	availableHeight := m.height - frameV*2 - titleHeight - spinnerHeight - headerHeight - selectorHeight
+
+	if availableWidth > 0 && availableHeight > 0 {
+		m.bookmarksMatchesList.SetSize(availableWidth, availableHeight)
 	}
 }
 

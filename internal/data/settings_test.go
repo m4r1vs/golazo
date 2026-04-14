@@ -285,6 +285,46 @@ func TestStringPtr(t *testing.T) {
 	}
 }
 
+func TestSettings_Bookmarks(t *testing.T) {
+	s := &Settings{}
+	club := ClubInfo{ID: 123, Name: "Test FC", LeagueID: 47}
+
+	// Initially not bookmarked
+	if s.IsClubBookmarked(123) {
+		t.Error("expected club not to be bookmarked initially")
+	}
+
+	// Add bookmark
+	s.AddBookmarkedClub(club)
+	if !s.IsClubBookmarked(123) {
+		t.Error("expected club to be bookmarked after adding")
+	}
+	if len(s.BookmarkedClubs) != 1 {
+		t.Errorf("expected 1 bookmarked club, got %d", len(s.BookmarkedClubs))
+	}
+
+	// Add duplicate bookmark (should not add)
+	s.AddBookmarkedClub(club)
+	if len(s.BookmarkedClubs) != 1 {
+		t.Errorf("expected 1 bookmarked club after adding duplicate, got %d", len(s.BookmarkedClubs))
+	}
+
+	// BookmarkedLeagueIDs
+	leagueIDs := s.BookmarkedLeagueIDs()
+	if len(leagueIDs) != 1 || leagueIDs[0] != 47 {
+		t.Errorf("expected league ID 47, got %v", leagueIDs)
+	}
+
+	// Remove bookmark
+	s.RemoveBookmarkedClub(123)
+	if s.IsClubBookmarked(123) {
+		t.Error("expected club not to be bookmarked after removal")
+	}
+	if len(s.BookmarkedClubs) != 0 {
+		t.Errorf("expected 0 bookmarked clubs after removal, got %d", len(s.BookmarkedClubs))
+	}
+}
+
 func TestTimePtr(t *testing.T) {
 	now := time.Now()
 	p := timePtr(now)

@@ -188,6 +188,173 @@ func renderDateRangeSelector(width int, selected int) string {
 	return lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Padding(0, 1).Render(selector)
 }
 
+// RenderBookmarksListPanel renders the left panel for bookmarks view.
+func RenderBookmarksListPanel(width, height int, bookmarksList list.Model, dateRange int, rightPanelFocused bool) string {
+	var header string
+	if rightPanelFocused {
+		header = design.RenderHeaderDim(constants.PanelBookmarks, width-6)
+	} else {
+		header = design.RenderHeader(constants.PanelBookmarks, width-6)
+	}
+
+	dateSelector := renderDateRangeSelector(width-6, dateRange)
+	emptyStyle := neonEmptyStyle.Width(width - 6)
+
+	var bookmarksListView string
+	if len(bookmarksList.Items()) == 0 {
+		bookmarksListView = emptyStyle.Render(constants.EmptyNoBookmarks + "\n\nPress ctrl+d in other views to bookmark a club")
+	} else {
+		bookmarksListView = bookmarksList.View()
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", dateSelector, "", bookmarksListView)
+
+	innerHeight := height - 2
+	if innerHeight > 0 {
+		content = truncateToHeight(content, innerHeight)
+	}
+
+	var panel string
+	if rightPanelFocused {
+		panel = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(neonDim).
+			Padding(0, 1).
+			Width(width).
+			Height(height).
+			Render(content)
+	} else {
+		panel = neonPanelStyle.Width(width).Height(height).Render(content)
+	}
+
+	return panel
+}
+
+// RenderBookmarksViewWithList renders the bookmarks view with list component.
+func RenderBookmarksViewWithList(width, height int, bookmarksList list.Model, details *api.MatchDetails, randomSpinner *RandomCharSpinner, viewLoading bool, dateRange int, daysLoaded int, totalDays int, goalLinks GoalLinksMap, bannerType constants.StatusBannerType, detailsViewport *viewport.Model, rightPanelFocused bool, scrollOffset int, lastError string) string {
+	if width <= 0 {
+		width = 80
+	}
+	if height <= 0 {
+		height = 24
+	}
+
+	spinnerHeight := 3
+	availableHeight := max(height-spinnerHeight, minPanelHeight)
+
+	spinnerStyle := lipgloss.NewStyle().
+		Width(width).
+		Height(spinnerHeight).
+		Align(lipgloss.Center).
+		AlignVertical(lipgloss.Center)
+
+	var spinnerArea string
+	if viewLoading && randomSpinner != nil {
+		spinnerView := randomSpinner.View()
+		var progressText string
+		if totalDays > 0 && daysLoaded < totalDays {
+			progressText = fmt.Sprintf("  Scanning day %d/%d...", daysLoaded+1, totalDays)
+		}
+		if spinnerView != "" {
+			spinnerArea = spinnerStyle.Render(spinnerView + progressText)
+		} else {
+			spinnerArea = spinnerStyle.Render("Scanning..." + progressText)
+		}
+	} else {
+		spinnerArea = spinnerStyle.Render("")
+	}
+
+	leftWidth := max(width*35/100, 25)
+	rightWidth := width - leftWidth - 1
+	if rightWidth < 35 {
+		rightWidth = 35
+		leftWidth = width - rightWidth - 1
+	}
+
+	panelHeight := availableHeight - 2
+
+	leftPanel := RenderBookmarksListPanel(leftWidth, panelHeight, bookmarksList, dateRange, rightPanelFocused)
+
+	// If there's an error and no details, show error in the right panel area
+	var headerContent, scrollableContent string
+	if lastError != "" && details == nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(neonRed).
+			Bold(true).
+			Align(lipgloss.Center).
+			Width(rightWidth - 6).
+			PaddingTop(panelHeight / 4)
+		scrollableContent = errorStyle.Render(lastError)
+	} else {
+		headerContent, scrollableContent = renderStatsMatchDetailsPanel(rightWidth, panelHeight, details, goalLinks, rightPanelFocused)
+	}
+
+	var rightPanel string
+	scrollableLines := strings.Split(scrollableContent, "\n")
+	headerHeight := strings.Count(headerContent, "\n") + 1
+	availableHeight = max(panelHeight-headerHeight, minScrollableArea)
+
+	visibleLines := scrollableLines
+	if rightPanelFocused && len(scrollableLines) > availableHeight {
+		start := scrollOffset
+		end := min(start+availableHeight, len(scrollableLines))
+		if start < len(scrollableLines) && start >= 0 {
+			visibleLines = scrollableLines[start:end]
+		} else if start >= len(scrollableLines) {
+			visibleLines = []string{}
+		}
+		for len(visibleLines) < availableHeight && len(visibleLines) < len(scrollableLines) {
+			visibleLines = append(visibleLines, "")
+		}
+	} else {
+		if len(scrollableLines) > availableHeight {
+			visibleLines = scrollableLines[:availableHeight]
+		}
+	}
+
+	visibleContent := strings.Join(visibleLines, "\n")
+
+	// Add context-aware help hint at bottom of panel content
+	var helpText string
+	if rightPanelFocused {
+		helpText = constants.HelpStatsViewFocused
+	} else {
+		helpText = constants.HelpStatsViewUnfocused
+	}
+	helpStyle := neonDimStyle.Width(rightWidth - 4).Align(lipgloss.Center).MarginTop(1)
+	helpRendered := helpStyle.Render(helpText)
+
+	rightPanel = lipgloss.JoinVertical(lipgloss.Left, headerContent, visibleContent, helpRendered)
+
+	if rightPanelFocused {
+		rightPanel = lipgloss.NewStyle().
+			BorderTop(true).
+			BorderBottom(true).
+			BorderForeground(neonCyan).
+			Padding(0, 1).
+			Width(rightWidth).
+			MaxHeight(panelHeight).
+			Render(rightPanel)
+	} else {
+		rightPanel = lipgloss.NewStyle().
+			BorderTop(true).
+			BorderBottom(true).
+			BorderForeground(neonDim).
+			Padding(0, 1).
+			Width(rightWidth).
+			MaxHeight(panelHeight).
+			Render(rightPanel)
+	}
+
+	separatorStyle := neonSeparatorStyle.Height(panelHeight)
+	separator := separatorStyle.Render("┃")
+
+	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, separator, rightPanel)
+	statusBanner := renderStatusBanner(bannerType, width)
+
+	return lipgloss.JoinVertical(lipgloss.Left, spinnerArea, statusBanner, panels)
+}
+
 // RenderMultiPanelViewWithList renders the live matches view with list component.
 func RenderMultiPanelViewWithList(width, height int, listModel list.Model, details *api.MatchDetails, liveUpdates []string, sp spinner.Model, loading bool, randomSpinner *RandomCharSpinner, viewLoading bool, leaguesLoaded int, totalLeagues int, pollingSpinner *RandomCharSpinner, isPolling bool, upcomingMatches []MatchDisplay, goalLinks GoalLinksMap, bannerType constants.StatusBannerType, lastError string) string {
 	if width <= 0 {

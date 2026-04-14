@@ -4,6 +4,7 @@ package constants
 const (
 	MenuStats       = "Finished Matches"
 	MenuLiveMatches = "Live Matches"
+	MenuBookmarks   = "Bookmarks"
 	MenuSettings    = "Settings"
 )
 
@@ -11,6 +12,7 @@ const (
 const (
 	PanelLiveMatches       = "Live Matches"
 	PanelFinishedMatches   = "Finished Matches"
+	PanelBookmarks         = "Bookmarked Matches"
 	PanelMatchDetails      = "Match Details"
 	PanelMatchList         = "Match List"
 	PanelUpcomingMatches   = "Upcoming Matches"
@@ -24,6 +26,7 @@ const (
 const (
 	EmptyNoLiveMatches     = "No live matches"
 	EmptyNoFinishedMatches = "No finished matches"
+	EmptyNoBookmarks       = "No bookmarked matches"
 	EmptySelectMatch       = "Select a match"
 	EmptyNoUpdates         = "No updates"
 	EmptyNoMatches         = "No matches available"
@@ -41,12 +44,14 @@ const (
 	HelpMainMenu           = "↑/↓: navigate  Enter: select  q: quit"
 	HelpMatchesView        = "↑/↓: navigate  r: refresh details  /: filter  Esc: back  q: quit"
 	HelpSettingsView       = "↑/↓: navigate  ←/→: switch tabs  Space: toggle  /: filter  Enter: save  Esc: back"
-	HelpStatsView          = "h/l: date range  j/k: navigate  Tab: focus details  ↑/↓: scroll when focused  r: refresh details  /: filter  Esc: back"
-	HelpStatsViewUnfocused = "Tab: focus details"
-	HelpStatsViewFocused   = "Tab: unfocus  s: standings  f: formations  x: all statistics  ↑/↓: scroll"
+	HelpStatsView          = "h/l: date range  j/k: navigate  ctrl+d: bookmark  Tab: focus details  ↑/↓: scroll when focused  r: refresh details  /: filter  Esc: back"
+	HelpBookmarksView      = "h/l: date range  j/k: navigate  ctrl+d: bookmark  Tab: focus details  ↑/↓: scroll when focused  r: refresh details  /: filter  Esc: back"
+	HelpStatsViewUnfocused = "ctrl+d: bookmark  Tab: focus details"
+	HelpStatsViewFocused   = "ctrl+d: bookmark  Tab: unfocus  s: standings  f: formations  x: all statistics  ↑/↓: scroll"
 	HelpStandingsDialog    = "Esc: close"
 	HelpFormationsDialog   = "Tab/←/→: switch team  Esc: close"
 	HelpStatisticsDialog   = "↑/↓: navigate  Esc: close"
+	HelpBookmarksDialog    = "↑/↓: navigate  Enter: toggle  Esc: close"
 )
 
 // Status text

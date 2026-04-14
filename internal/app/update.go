@@ -7,6 +7,7 @@ import (
 
 	"github.com/0xjuanma/golazo/internal/api"
 	"github.com/0xjuanma/golazo/internal/constants"
+	"github.com/0xjuanma/golazo/internal/data"
 	"github.com/0xjuanma/golazo/internal/fotmob"
 	"github.com/0xjuanma/golazo/internal/reddit"
 	"github.com/0xjuanma/golazo/internal/ui"
@@ -103,13 +104,17 @@ func (m model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 			m.liveMatchesList.SetSize(availableWidth, availableHeight)
 		}
 
-	case viewStats:
+	case viewStats, viewBookmarks:
 		leftWidth := max(m.width*40/100, 30)
 		availableWidth := leftWidth - frameH*2
 		availableHeight := m.height - frameV*2 - titleHeight - spinnerHeight
 		if availableWidth > 0 && availableHeight > 0 {
 			// Upcoming matches are now shown in Live view, so give full height to finished list
-			m.statsMatchesList.SetSize(availableWidth, availableHeight)
+			if m.currentView == viewStats {
+				m.statsMatchesList.SetSize(availableWidth, availableHeight)
+			} else {
+				m.bookmarksMatchesList.SetSize(availableWidth, availableHeight)
+			}
 		}
 
 	case viewSettings:
@@ -222,11 +227,12 @@ func (m model) handleMatchDetails(msg matchDetailsMsg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchGoalLinks(m.redditClient, msg.details))
 	}
 
-	// Cache for stats view (including during preload)
-	if m.currentView == viewStats || m.pendingSelection == 0 {
+	// Cache for stats or bookmarks view (including during preload)
+	if m.currentView == viewStats || m.pendingSelection == 0 || m.currentView == viewBookmarks || m.pendingSelection == 2 {
 		m.matchDetailsCache[msg.details.ID] = msg.details
 		m.loading = false
 		m.statsViewLoading = false
+		m.bookmarksViewLoading = false
 		return m, tea.Batch(cmds...)
 	}
 
@@ -297,6 +303,25 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		action := m.dialogOverlay.Update(msg)
 		if _, ok := action.(ui.DialogActionClose); ok {
 			m.dialogOverlay.CloseFrontDialog()
+		} else if action, ok := action.(ui.BookmarksActionSelect); ok {
+			m.dialogOverlay.CloseFrontDialog()
+			// Toggle bookmark
+			settings, _ := data.LoadSettings()
+			if settings.IsClubBookmarked(action.TeamID) {
+				settings.RemoveBookmarkedClub(action.TeamID)
+			} else {
+				settings.AddBookmarkedClub(data.ClubInfo{
+					ID:       action.TeamID,
+					Name:     action.TeamName,
+					LeagueID: action.LeagueID,
+				})
+			}
+			_ = data.SaveSettings(settings)
+
+			// Refresh data if in bookmarks view
+			if m.currentView == viewBookmarks {
+				m.applyDataFilters()
+			}
 		}
 		return m, nil
 	}
@@ -318,6 +343,9 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case viewStats:
 			isFiltering = m.statsMatchesList.FilterState() == list.Filtering ||
 				m.statsMatchesList.FilterState() == list.FilterApplied
+		case viewBookmarks:
+			isFiltering = m.bookmarksMatchesList.FilterState() == list.Filtering ||
+				m.bookmarksMatchesList.FilterState() == list.FilterApplied
 		case viewSettings:
 			if m.settingsState != nil {
 				isFiltering = m.settingsState.List.FilterState() == list.Filtering ||
@@ -343,6 +371,8 @@ func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLiveMatchesSelection(msg)
 	case viewStats:
 		return m.handleStatsSelection(msg)
+	case viewBookmarks:
+		return m.handleBookmarksSelection(msg)
 	case viewSettings:
 		return m.handleSettingsViewKeys(msg)
 	}
@@ -366,6 +396,8 @@ func (m model) resetToMainView() (tea.Model, tea.Cmd) {
 	m.lastAwayScore = 0
 	m.loading = false
 	m.polling = false
+	m.statsViewLoading = false
+	m.bookmarksViewLoading = false
 	m.matches = nil
 	m.upcomingMatches = nil
 	m.statsRightPanelFocused = false
@@ -426,6 +458,16 @@ func (m model) handleLiveMatchesSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.loadMatchDetailsWithRefresh(m.matchDetails.ID, true)
 		} else {
 			m.debugLog("Cannot refresh - no match details currently loaded")
+		}
+	}
+
+	// Handle ctrl+d to open bookmarks dialog
+	if msg.String() == "ctrl+d" {
+		if item := m.liveMatchesList.SelectedItem(); item != nil {
+			if matchItem, ok := item.(ui.MatchListItem); ok {
+				dialog := ui.NewBookmarksDialog(matchItem.Match)
+				m.dialogOverlay.OpenDialog(dialog)
+			}
 		}
 	}
 
@@ -566,6 +608,147 @@ func (m model) handleStatsSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.loadStatsMatchDetailsWithRefresh(m.matchDetails.ID, true)
 		} else {
 			m.debugLog("Cannot refresh - no match details currently loaded")
+		}
+	}
+
+	// Handle ctrl+d to open bookmarks dialog
+	if msg.String() == "ctrl+d" {
+		if item := m.statsMatchesList.SelectedItem(); item != nil {
+			if matchItem, ok := item.(ui.MatchListItem); ok {
+				dialog := ui.NewBookmarksDialog(matchItem.Match)
+				m.dialogOverlay.OpenDialog(dialog)
+			}
+		}
+	}
+
+	return m, listCmd
+}
+
+// handleBookmarksSelection handles list navigation and date range changes in bookmarks view.
+func (m model) handleBookmarksSelection(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Check if list is in filtering mode - if so, let list handle ALL keys
+	isFiltering := m.bookmarksMatchesList.FilterState() == list.Filtering
+
+	// Handle keys based on focus state
+	if m.statsRightPanelFocused && m.matchDetails != nil && m.statsDetailsViewport.Height > 0 {
+		// Right panel focused - handle scrolling keys and dialog triggers
+		switch msg.String() {
+		case "up", "k":
+			if m.matchDetails != nil && m.statsScrollOffset > 0 {
+				m.statsScrollOffset--
+			}
+			return m, nil
+		case "down", "j":
+			if m.matchDetails != nil && m.statsRightPanelFocused {
+				scrollableLines := m.getScrollableContentLength()
+				headerHeight := m.getHeaderContentHeight()
+				availableHeight := m.height - 10
+				if availableHeight < 10 {
+					availableHeight = 10
+				}
+				scrollableHeight := availableHeight - headerHeight
+				if scrollableHeight < 3 {
+					scrollableHeight = 3
+				}
+				maxOffset := scrollableLines - scrollableHeight
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				if m.statsScrollOffset < maxOffset {
+					m.statsScrollOffset++
+				}
+			}
+			return m, nil
+		case "tab":
+			m.statsRightPanelFocused = false
+			return m, nil
+		case "f":
+			m.openFormationsDialog()
+			return m, nil
+		case "s":
+			if m.matchDetails != nil {
+				return m, fetchStandings(
+					m.fotmobClient,
+					m.matchDetails.League.ID,
+					m.matchDetails.League.Name,
+					m.matchDetails.League.ParentLeagueID,
+					m.matchDetails.HomeTeam.ID,
+					m.matchDetails.AwayTeam.ID,
+				)
+			}
+			return m, nil
+		case "x":
+			m.openStatisticsDialog()
+			return m, nil
+		}
+	}
+
+	// Only handle date range navigation when NOT filtering
+	if !isFiltering {
+		if msg.String() == "h" || msg.String() == "left" || msg.String() == "l" || msg.String() == "right" {
+			return m.handleStatsViewKeys(msg)
+		}
+		if msg.String() == "tab" {
+			return m.handleStatsViewKeys(msg)
+		}
+	}
+
+	// Capture selected item BEFORE Update
+	var preUpdateMatchID int
+	if preItem := m.bookmarksMatchesList.SelectedItem(); preItem != nil {
+		if item, ok := preItem.(ui.MatchListItem); ok {
+			preUpdateMatchID = item.Match.ID
+		}
+	}
+
+	// Handle list navigation
+	var listCmd tea.Cmd
+	m.bookmarksMatchesList, listCmd = m.bookmarksMatchesList.Update(msg)
+
+	// Get currently displayed match ID
+	currentMatchID := 0
+	if m.matchDetails != nil {
+		currentMatchID = m.matchDetails.ID
+	}
+
+	// Check post-update selection
+	var postUpdateMatchID int
+	if postItem := m.bookmarksMatchesList.SelectedItem(); postItem != nil {
+		if item, ok := postItem.(ui.MatchListItem); ok {
+			postUpdateMatchID = item.Match.ID
+		}
+	}
+
+	targetMatchID := postUpdateMatchID
+	if msg.String() == "enter" && preUpdateMatchID != 0 {
+		targetMatchID = preUpdateMatchID
+	}
+
+	// Load match details if selection changed
+	if targetMatchID != 0 && targetMatchID != currentMatchID {
+		for i, match := range m.matches {
+			if match.ID == targetMatchID {
+				m.selected = i
+				break
+			}
+		}
+		return m.loadBookmarksMatchDetails(targetMatchID)
+	}
+
+	// Handle refresh key (r) to force refresh current match
+	if msg.String() == "r" {
+		if m.matchDetails != nil {
+			return m.loadBookmarksMatchDetailsWithRefresh(m.matchDetails.ID, true)
+		}
+	}
+
+	// Handle ctrl+d to open bookmarks dialog
+	if msg.String() == "ctrl+d" {
+		if item := m.bookmarksMatchesList.SelectedItem(); item != nil {
+			if matchItem, ok := item.(ui.MatchListItem); ok {
+				dialog := ui.NewBookmarksDialog(matchItem.Match)
+				m.dialogOverlay.OpenDialog(dialog)
+			}
 		}
 	}
 
@@ -790,8 +973,8 @@ func (m model) handleStatsData(msg statsDataMsg) (tea.Model, tea.Cmd) {
 	// Store the full stats data for client-side filtering
 	m.statsData = msg.data
 
-	// Apply the current date range filter
-	m.applyStatsDateFilter()
+	// Apply filters and update UI
+	m.applyDataFilters()
 
 	m.selected = 0
 	m.loading = false
@@ -828,6 +1011,7 @@ func (m model) handleStatsDayData(msg statsDayDataMsg) (tea.Model, tea.Cmd) {
 			AllFinished:   []api.Match{},
 			TodayFinished: []api.Match{},
 			TodayUpcoming: []api.Match{},
+			TodayLive:     []api.Match{},
 		}
 	}
 
@@ -877,11 +1061,18 @@ func (m model) handleStatsDayData(msg statsDayDataMsg) (tea.Model, tea.Cmd) {
 		for _, match := range m.statsData.TodayUpcoming {
 			existingIDs[match.ID] = true
 		}
+		for _, match := range m.statsData.TodayLive {
+			existingIDs[match.ID] = true
+		}
 
 		// Only add matches that aren't already in the list
 		for _, match := range msg.upcoming {
 			if !existingIDs[match.ID] {
-				m.statsData.TodayUpcoming = append(m.statsData.TodayUpcoming, match)
+				if match.Status == api.MatchStatusLive {
+					m.statsData.TodayLive = append(m.statsData.TodayLive, match)
+				} else {
+					m.statsData.TodayUpcoming = append(m.statsData.TodayUpcoming, match)
+				}
 				existingIDs[match.ID] = true
 			}
 		}
@@ -897,19 +1088,28 @@ func (m model) handleStatsDayData(msg statsDayDataMsg) (tea.Model, tea.Cmd) {
 	// Track progress
 	m.statsDaysLoaded++
 
-	// Apply filter and update UI immediately with current data
-	m.applyStatsDateFilter()
+	// Apply filters and update UI immediately with current data
+	m.applyDataFilters()
 
 	// On first day with matches, select first match and load details
 	firstDayWithMatches := msg.dayIndex == 0 && len(m.matches) > 0 && m.matchDetails == nil
 	if firstDayWithMatches {
 		m.selected = 0
-		m.statsMatchesList.Select(0)
-		updatedModel, loadCmd := m.loadStatsMatchDetails(m.matches[0].ID)
-		if updatedM, ok := updatedModel.(model); ok {
-			m = updatedM
+		if m.currentView == viewStats || m.pendingSelection == 0 {
+			m.statsMatchesList.Select(0)
+			updatedModel, loadCmd := m.loadStatsMatchDetails(m.matches[0].ID)
+			if updatedM, ok := updatedModel.(model); ok {
+				m = updatedM
+			}
+			cmds = append(cmds, loadCmd)
+		} else if m.currentView == viewBookmarks || m.pendingSelection == 2 {
+			m.bookmarksMatchesList.Select(0)
+			updatedModel, loadCmd := m.loadBookmarksMatchDetails(m.matches[0].ID)
+			if updatedM, ok := updatedModel.(model); ok {
+				m = updatedM
+			}
+			cmds = append(cmds, loadCmd)
 		}
-		cmds = append(cmds, loadCmd)
 	}
 
 	// If last day, stop loading
@@ -934,36 +1134,79 @@ func (m model) handleStatsDayData(msg statsDayDataMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// applyStatsDateFilter applies the current date range filter to the cached stats data.
-// This enables instant switching between Today/3d/5d views without new API calls.
-// All filtering is done client-side from the cached 5-day data based on match MatchTime.
-func (m *model) applyStatsDateFilter() {
+// applyDataFilters applies the current date range and bookmark filters to the cached stats data.
+// This enables instant switching between views without new API calls.
+func (m *model) applyDataFilters() {
 	if m.statsData == nil {
 		return
 	}
 
-	// Filter all views from AllFinished based on match's actual MatchTime date
+	// Apply stats date filter
 	var finishedMatches []api.Match
 	switch m.statsDateRange {
 	case 1:
-		// Today only - filter by match date
 		finishedMatches = filterMatchesByDays(m.statsData.AllFinished, 1)
 	case 3:
-		// Last 3 days - filter by match date
 		finishedMatches = filterMatchesByDays(m.statsData.AllFinished, 3)
 	default:
-		// 5 days - use all data
 		finishedMatches = m.statsData.AllFinished
 	}
 
-	// Convert to display format
+	// Update stats matches list
 	displayMatches := make([]ui.MatchDisplay, 0, len(finishedMatches))
 	for _, match := range finishedMatches {
 		displayMatches = append(displayMatches, ui.MatchDisplay{Match: match})
 	}
-	m.matches = displayMatches
-	m.statsMatchesList.SetItems(ui.ToMatchListItems(displayMatches))
-	// Note: Upcoming matches are now shown in the Live view instead
+
+	// Only update list items if we're in stats view or it's being preloaded
+	if m.currentView == viewStats || m.pendingSelection == 0 {
+		m.matches = displayMatches
+		m.statsMatchesList.SetItems(ui.ToMatchListItems(displayMatches))
+	}
+
+	// Apply bookmarks filter
+	settings, _ := data.LoadSettings()
+	var bookmarkedMatches []api.Match
+
+	// Include today's live matches
+	for _, match := range m.statsData.TodayLive {
+		if settings.IsClubBookmarked(match.HomeTeam.ID) || settings.IsClubBookmarked(match.AwayTeam.ID) {
+			bookmarkedMatches = append(bookmarkedMatches, match)
+		}
+	}
+
+	// Include today's upcoming matches
+	for _, match := range m.statsData.TodayUpcoming {
+		if settings.IsClubBookmarked(match.HomeTeam.ID) || settings.IsClubBookmarked(match.AwayTeam.ID) {
+			bookmarkedMatches = append(bookmarkedMatches, match)
+		}
+	}
+
+	// Include finished matches
+	for _, match := range m.statsData.AllFinished {
+		if settings.IsClubBookmarked(match.HomeTeam.ID) || settings.IsClubBookmarked(match.AwayTeam.ID) {
+			bookmarkedMatches = append(bookmarkedMatches, match)
+		}
+	}
+
+	// Filter bookmarked matches by date range too (upcoming are always "today")
+	switch m.statsDateRange {
+	case 1:
+		bookmarkedMatches = filterMatchesByDays(bookmarkedMatches, 1)
+	case 3:
+		bookmarkedMatches = filterMatchesByDays(bookmarkedMatches, 3)
+	}
+
+	bookmarkDisplays := make([]ui.MatchDisplay, 0, len(bookmarkedMatches))
+	for _, match := range bookmarkedMatches {
+		bookmarkDisplays = append(bookmarkDisplays, ui.MatchDisplay{Match: match})
+	}
+
+	// Only update list items if we're in bookmarks view or it's being preloaded
+	if m.currentView == viewBookmarks || m.pendingSelection == 2 {
+		m.matches = bookmarkDisplays
+		m.bookmarksMatchesList.SetItems(ui.ToMatchListItems(bookmarkDisplays))
+	}
 }
 
 // filterMatchesByDays filters matches to only include those from the last N days.
@@ -1002,7 +1245,7 @@ func (m model) handleAnimationTick(msg ui.TickMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check if any spinner needs to be animated
-	spinnersActive := m.mainViewLoading || m.liveViewLoading || m.statsViewLoading || m.polling
+	spinnersActive := m.mainViewLoading || m.liveViewLoading || m.statsViewLoading || m.bookmarksViewLoading || m.polling
 
 	if !logoAnimating && !spinnersActive {
 		// No animations active - don't continue the tick chain
@@ -1014,7 +1257,7 @@ func (m model) handleAnimationTick(msg ui.TickMsg) (tea.Model, tea.Cmd) {
 		m.randomSpinner.Tick()
 	}
 
-	if m.liveViewLoading && m.currentView == viewLiveMatches {
+	if (m.liveViewLoading && m.currentView == viewLiveMatches) || (m.bookmarksViewLoading && m.currentView == viewBookmarks) {
 		m.randomSpinner.Tick()
 	}
 
@@ -1040,20 +1283,34 @@ func (m model) handleMainViewCheck(msg mainViewCheckMsg) (tea.Model, tea.Cmd) {
 
 	// Just switch to the target view - API calls already started during selection
 	switch msg.selection {
-	case 0: // Stats view
-		m.currentView = viewStats
+	case 0, 2: // Stats or Bookmarks view
+		if msg.selection == 0 {
+			m.currentView = viewStats
+		} else {
+			m.currentView = viewBookmarks
+		}
 		m.selected = 0
 
 		// If matches already loaded, ensure first match is selected
 		if len(m.matches) > 0 {
-			m.statsMatchesList.Select(0)
+			if msg.selection == 0 {
+				m.statsMatchesList.Select(0)
+			} else {
+				m.bookmarksMatchesList.Select(0)
+			}
 
 			// Load details from cache if available, otherwise start fetch
 			if cached, ok := m.matchDetailsCache[m.matches[0].ID]; ok {
 				m.matchDetails = cached
 			} else if m.matchDetails == nil {
 				// Details not loaded yet, start loading
-				updatedModel, loadCmd := m.loadStatsMatchDetails(m.matches[0].ID)
+				var loadCmd tea.Cmd
+				var updatedModel tea.Model
+				if msg.selection == 0 {
+					updatedModel, loadCmd = m.loadStatsMatchDetails(m.matches[0].ID)
+				} else {
+					updatedModel, loadCmd = m.loadBookmarksMatchDetails(m.matches[0].ID)
+				}
 				if updatedM, ok := updatedModel.(model); ok {
 					m = updatedM
 				}
@@ -1062,7 +1319,7 @@ func (m model) handleMainViewCheck(msg mainViewCheckMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// Keep spinners running if still loading
-		if m.statsViewLoading {
+		if m.statsViewLoading || m.bookmarksViewLoading {
 			cmds = append(cmds, m.spinner.Tick, ui.SpinnerTick())
 		}
 
@@ -1139,6 +1396,8 @@ func (m model) handleFilterMatches(msg list.FilterMatchesMsg) (tea.Model, tea.Cm
 		if upCmd != nil {
 			cmd = tea.Batch(cmd, upCmd)
 		}
+	case viewBookmarks:
+		m.bookmarksMatchesList, cmd = m.bookmarksMatchesList.Update(msg)
 	case viewSettings:
 		if m.settingsState != nil {
 			m.settingsState.List, cmd = m.settingsState.List.Update(msg)

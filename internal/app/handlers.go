@@ -17,7 +17,7 @@ import (
 func (m model) handleMainViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "j", "down":
-		if m.selected < 2 && !m.mainViewLoading { // 3 menu items: 0, 1, 2
+		if m.selected < 3 && !m.mainViewLoading { // 4 menu items: 0, 1, 2, 3
 			m.selected++
 		}
 	case "k", "up":
@@ -30,7 +30,7 @@ func (m model) handleMainViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle Settings view separately (no API calls needed)
-		if m.selected == 2 {
+		if m.selected == 3 {
 			m.settingsState = ui.NewSettingsState()
 			m.currentView = viewSettings
 			return m, nil
@@ -64,13 +64,18 @@ func (m model) handleMainViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.selected {
-		case 0: // Stats view - fetch data progressively (day by day)
-			m.statsViewLoading = true
+		case 0, 2: // Stats or Bookmarks view - fetch data progressively (day by day)
+			if m.selected == 0 {
+				m.statsViewLoading = true
+			} else {
+				m.bookmarksViewLoading = true
+			}
 			m.loading = true
 			m.statsData = nil                          // Clear cached data to force fresh fetch
 			m.statsDaysLoaded = 0                      // Reset progress
 			m.statsTotalDays = fotmob.StatsDataDays    // Set total days to load
 			m.statsMatchesList.SetItems([]list.Item{}) // Clear list
+			m.bookmarksMatchesList.SetItems([]list.Item{})
 			cmds = append(cmds, ui.SpinnerTick())
 			// Start fetching day 0 (today) first - results shown immediately when it completes
 			cmds = append(cmds, fetchStatsDayData(m.loadCtx, m.fotmobClient, m.useMockData, 0, fotmob.StatsDataDays))
@@ -133,13 +138,18 @@ func (m model) handleStatsViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.statsData != nil {
 		m.matchDetails = nil
 		m.matchDetailsCache = make(map[int]*api.MatchDetails)
-		m.applyStatsDateFilter()
+		m.applyDataFilters()
 		m.selected = 0
 
 		// Load details for first match if available
 		if len(m.matches) > 0 {
-			m.statsMatchesList.Select(0)
-			return m.loadStatsMatchDetails(m.matches[0].ID)
+			if m.currentView == viewStats {
+				m.statsMatchesList.Select(0)
+				return m.loadStatsMatchDetails(m.matches[0].ID)
+			} else if m.currentView == viewBookmarks {
+				m.bookmarksMatchesList.Select(0)
+				return m.loadBookmarksMatchDetails(m.matches[0].ID)
+			}
 		}
 		return m, nil
 	}
@@ -209,6 +219,34 @@ func (m model) loadStatsMatchDetailsWithRefresh(matchID int, forceRefresh bool) 
 	m.loading = true
 	m.statsViewLoading = true
 	m.debugLog(fmt.Sprintf("Fetching match details from API for ID: %d", matchID))
+	return m, tea.Batch(m.spinner.Tick, ui.SpinnerTick(), fetchStatsMatchDetailsFotmob(m.fotmobClient, matchID, m.useMockData))
+}
+
+// loadBookmarksMatchDetails loads match details for the bookmarks view.
+func (m model) loadBookmarksMatchDetails(matchID int) (tea.Model, tea.Cmd) {
+	return m.loadBookmarksMatchDetailsWithRefresh(matchID, false)
+}
+
+// loadBookmarksMatchDetailsWithRefresh loads match details with optional cache bypass for bookmarks view.
+func (m model) loadBookmarksMatchDetailsWithRefresh(matchID int, forceRefresh bool) (tea.Model, tea.Cmd) {
+	m.debugLog(fmt.Sprintf("Loading bookmarks match details for ID: %d (forceRefresh: %v)", matchID, forceRefresh))
+
+	// Check cache unless force refresh is requested
+	if !forceRefresh {
+		if cached, ok := m.matchDetailsCache[matchID]; ok {
+			m.matchDetails = cached
+			m.debugLog(fmt.Sprintf("Using cached match details for ID: %d", matchID))
+			return m, nil
+		}
+	} else {
+		// Clear from cache to force fresh fetch
+		delete(m.matchDetailsCache, matchID)
+	}
+
+	// Fetch from API
+	m.loading = true
+	m.bookmarksViewLoading = true
+	m.debugLog(fmt.Sprintf("Fetching bookmarks match details from API for ID: %d", matchID))
 	return m, tea.Batch(m.spinner.Tick, ui.SpinnerTick(), fetchStatsMatchDetailsFotmob(m.fotmobClient, matchID, m.useMockData))
 }
 

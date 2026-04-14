@@ -30,6 +30,7 @@ const (
 	viewMain view = iota
 	viewLiveMatches
 	viewStats
+	viewBookmarks
 	viewSettings
 )
 
@@ -77,6 +78,7 @@ type model struct {
 	// List components
 	liveMatchesList        list.Model
 	statsMatchesList       list.Model
+	bookmarksMatchesList    list.Model
 	upcomingMatchesList    list.Model
 	statsDetailsViewport   viewport.Model // Scrollable viewport for match details in stats view
 	statsRightPanelFocused bool           // Whether right panel is focused for scrolling
@@ -87,8 +89,9 @@ type model struct {
 	mainViewLoading  bool
 	liveViewLoading  bool
 	statsViewLoading bool
+	bookmarksViewLoading bool
 	polling          bool
-	pendingSelection int    // Tracks which view is being preloaded (-1 = none, 0 = stats, 1 = live)
+	pendingSelection int    // Tracks which view is being preloaded (-1 = none, 0 = stats, 1 = live, 2 = bookmarks)
 	lastError        string // Last error message to display in UI (cleared on successful load)
 
 	// Context for cancelling in-flight API requests when navigating away
@@ -167,6 +170,11 @@ func New(useMockData bool, debugMode bool, isDevBuild bool, newVersionAvailable 
 	liveList.Styles.FilterCursor = filterCursorStyle
 	liveList.FilterInput.PromptStyle = filterPromptStyle
 	liveList.FilterInput.Cursor.Style = filterCursorStyle
+	liveList.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "bookmark")),
+		}
+	}
 
 	statsList := list.New([]list.Item{}, delegate, 0, 0)
 	statsList.SetShowTitle(false)
@@ -180,6 +188,23 @@ func New(useMockData bool, debugMode bool, isDevBuild bool, newVersionAvailable 
 	statsList.AdditionalShortHelpKeys = func() []key.Binding {
 		return []key.Binding{
 			key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus")),
+			key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "bookmark")),
+		}
+	}
+
+	bookmarksList := list.New([]list.Item{}, delegate, 0, 0)
+	bookmarksList.SetShowTitle(false)
+	bookmarksList.SetShowStatusBar(true)
+	bookmarksList.SetFilteringEnabled(true)
+	bookmarksList.SetShowFilter(true)
+	bookmarksList.Filter = list.DefaultFilter // Required for filtering to work
+	bookmarksList.Styles.FilterCursor = filterCursorStyle
+	bookmarksList.FilterInput.PromptStyle = filterPromptStyle
+	bookmarksList.FilterInput.Cursor.Style = filterCursorStyle
+	bookmarksList.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus")),
+			key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "bookmark")),
 		}
 	}
 
@@ -235,6 +260,7 @@ func New(useMockData bool, debugMode bool, isDevBuild bool, newVersionAvailable 
 		pollingSpinner:         pollingSpinner,
 		liveMatchesList:        liveList,
 		statsMatchesList:       statsList,
+		bookmarksMatchesList:    bookmarksList,
 		upcomingMatchesList:    upcomingList,
 		statsDetailsViewport:   statsDetailsViewport,
 		statsRightPanelFocused: false, // Start with left panel focused
